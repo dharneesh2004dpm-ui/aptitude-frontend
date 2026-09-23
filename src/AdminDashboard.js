@@ -76,7 +76,7 @@ export default function AdminDashboard() {
                 savedQuestionIds.push(qRes.data._id || qRes.data.id);
             }
 
-            const testRes = await axios.post('https://aptitude-backend-szjt.onrender.com/api/test/create', {
+            const testRes = await axios.post('https://aptitude-backend-szjt.onrender.com/api/admin/tests',{
                 title: testTitle,
                 durationMinutes: Number(duration),
                 questions: savedQuestionIds
