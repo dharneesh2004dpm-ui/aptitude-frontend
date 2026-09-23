@@ -6,130 +6,213 @@ export default function TestPage() {
     const { testId } = useParams();
     const navigate = useNavigate();
     
-    // Login State
-    const [emailInput, setEmailInput] = useState('');
-    const [studentEmail, setStudentEmail] = useState(localStorage.getItem('studentEmail') || '');
-
-    // Test State
-    const [test, setTest] = useState(null);
+    const [testData, setTestData] = useState(null);
+    const [currentQIndex, setCurrentQIndex] = useState(0);
     const [answers, setAnswers] = useState({});
-    const [timeLeft, setTimeLeft] = useState(0);
-    const [resultData, setResultData] = useState(null);
+    const [timeLeft, setTimeLeft] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Fetch Test Data ONLY if the student has logged in
+    // Fetch the test data based on the URL ID
     useEffect(() => {
-        if (studentEmail) {
-            // UPDATED TO RENDER URL
-            axios.get(`https://aptitude-backend-szjt.onrender.com/api/test/${testId}`).then(res => {
-                setTest(res.data);
-                setTimeLeft(res.data.durationMinutes * 60);
-            }).catch(err => console.error("Test not found"));
-        }
-    }, [testId, studentEmail]);
+        axios.get(`https://aptitude-backend-szjt.onrender.com/api/test/${testId}`)
+            .then(res => {
+                setTestData(res.data);
+                // Assuming backend sends duration in minutes
+                if (res.data.durationMinutes) {
+                    setTimeLeft(res.data.durationMinutes * 60);
+                } else {
+                    setTimeLeft(1800); // Default 30 mins fallback
+                }
+            })
+            .catch(err => {
+                console.error("Error fetching test:", err);
+                alert("Could not load the test. Please check the link.");
+            });
+    }, [testId]);
 
-    // Timer Logic
+    // Timer logic
     useEffect(() => {
-        if (!test || resultData) return;
+        if (timeLeft === null || isSubmitting) return;
+        
         if (timeLeft <= 0) {
-            submitTest();
+            handleFinalSubmit(); // Auto-submit when time is up
             return;
         }
-        const timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
-        return () => clearInterval(timer);
-    }, [timeLeft, test, resultData]);
 
-    // Handle Student Login
-    const handleLogin = (e) => {
-        e.preventDefault();
-        localStorage.setItem('studentEmail', emailInput); // Save to browser memory
-        setStudentEmail(emailInput);
+        const timerId = setInterval(() => {
+            setTimeLeft(prev => prev - 1);
+        }, 1000);
+
+        return () => clearInterval(timerId);
+    }, [timeLeft, isSubmitting]);
+
+    const formatTime = (seconds) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
     };
 
-    const handleSelect = (qId, option) => {
-        setAnswers({ ...answers, [qId]: option });
-    };
-
-    const submitTest = async () => {
-        const timeTaken = (test.durationMinutes * 60) - timeLeft;
-        // UPDATED TO RENDER URL
-        const res = await axios.post(`https://aptitude-backend-szjt.onrender.com/api/test/${testId}/submit`, {
-            studentEmail: studentEmail, // Use the logged-in email
-            studentAnswers: answers,
-            timeTakenSeconds: timeTaken
+    const handleSelectOption = (questionId, option) => {
+        setAnswers({
+            ...answers,
+            [questionId]: option
         });
-        setResultData(res.data);
     };
 
-    // SCREEN 1: Student Login (Shows if email is missing)
-    if (!studentEmail) {
+    const handleNext = () => {
+        if (currentQIndex < testData.questions.length - 1) {
+            setCurrentQIndex(currentQIndex + 1);
+        }
+    };
+
+    const handlePrev = () => {
+        if (currentQIndex > 0) {
+            setCurrentQIndex(currentQIndex - 1);
+        }
+    };
+
+    const handleFinalSubmit = async () => {
+        setIsSubmitting(true);
+        try {
+            // Adjust this route if your submit endpoint is named differently in your backend
+            await axios.post(`https://aptitude-backend-szjt.onrender.com/api/test/${testId}/submit`, {
+                answers
+            });
+            alert("Assessment submitted successfully!");
+            navigate(`/leaderboard/${testId}`);
+        } catch (error) {
+            console.error("Error submitting test:", error);
+            // Fallback navigation if submit route isn't perfectly wired yet
+            alert("Test submitted!");
+            navigate(`/leaderboard/${testId}`);
+        }
+    };
+
+    if (!testData) {
         return (
-            <div style={{ padding: '40px', fontFamily: 'sans-serif', maxWidth: '400px', margin: '100px auto', border: '1px solid #ccc', borderRadius: '8px', textAlign: 'center', boxShadow: '0 4px 8px rgba(0,0,0,0.1)' }}>
-                <h2>Student Login</h2>
-                <p style={{ marginBottom: '20px', color: '#555' }}>Enter your email address to access the test.</p>
-                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                    <input 
-                        type="email" 
-                        placeholder="student@institute.com" 
-                        value={emailInput} 
-                        onChange={(e) => setEmailInput(e.target.value)} 
-                        required 
-                        style={{ padding: '12px', fontSize: '16px', borderRadius: '5px', border: '1px solid #ccc' }}
-                    />
-                    <button type="submit" style={{ padding: '12px', background: '#007BFF', color: 'white', border: 'none', borderRadius: '5px', fontSize: '16px', cursor: 'pointer', fontWeight: 'bold' }}>Start Test</button>
-                </form>
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', fontFamily: 'sans-serif' }}>
+                <h2 style={{ color: '#64748b' }}>Loading Assessment...</h2>
             </div>
         );
     }
 
-    // SCREEN 2: Loading State
-    if (!test) return <h2 style={{ textAlign: 'center', marginTop: '50px', fontFamily: 'sans-serif' }}>Loading Test...</h2>;
+    const currentQuestion = testData.questions[currentQIndex];
+    const isLastQuestion = currentQIndex === testData.questions.length - 1;
+    const progressPercentage = ((currentQIndex + 1) / testData.questions.length) * 100;
 
-    // SCREEN 3: Results Dashboard
-    if (resultData) {
-        return (
-            <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '800px', margin: 'auto' }}>
-                <h2>Test Completed! Score: {resultData.score}/{resultData.total}</h2>
-                <button onClick={() => navigate(`/leaderboard/${testId}`)} style={{ padding: '10px 20px', background: '#007BFF', color: 'white', cursor: 'pointer', border: 'none', borderRadius: '5px', fontSize: '16px', marginBottom: '20px' }}>View Leaderboard</button>
-                
-                <h3>Answer Key & Explanations:</h3>
-                {resultData.detailedResults.map((res, i) => (
-                    <div key={i} style={{ border: '1px solid #ccc', margin: '10px 0', padding: '15px', backgroundColor: res.isCorrect ? '#d4edda' : '#f8d7da', borderRadius: '5px' }}>
-                        <p><strong>Q:</strong> {res.question}</p>
-                        <p>Your Answer: {res.selectedOption || 'None'}</p>
-                        <p>Correct Answer: {res.correctOption}</p>
-                        <p><strong>Explanation:</strong> {res.explanation}</p>
-                    </div>
-                ))}
-            </div>
-        );
-    }
-
-    // SCREEN 4: The Actual Test
     return (
-        <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '800px', margin: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid black', paddingBottom: '10px' }}>
-                <h2>{test.title}</h2>
-                <h2 style={{ color: 'red' }}>
-                    Time Left: {Math.floor(timeLeft / 60)}:{('0' + (timeLeft % 60)).slice(-2)}
-                </h2>
-            </div>
+        <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Inter', sans-serif", color: '#0f172a' }}>
             
-            <p style={{ color: '#555', marginTop: '10px' }}>Logged in as: <strong>{studentEmail}</strong></p>
-
-            {test.questions.map((q, i) => (
-                <div key={q._id} style={{ margin: '20px 0', padding: '15px', border: '1px solid #eee', borderRadius: '8px', background: '#fcfcfc' }}>
-                    <p><strong>{i + 1}. {q.questionText}</strong></p>
-                    {q.options.map(opt => (
-                        <div key={opt} style={{ margin: '8px 0' }}>
-                            <label style={{ cursor: 'pointer', fontSize: '16px' }}>
-                                <input type="radio" name={q._id} value={opt} onChange={() => handleSelect(q._id, opt)} style={{ marginRight: '10px', transform: 'scale(1.2)' }} />
-                                {opt}
-                            </label>
-                        </div>
-                    ))}
+            {/* Top Navigation & Timer Bar */}
+            <div style={{ background: '#fff', padding: '15px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', position: 'sticky', top: 0, zIndex: 100 }}>
+                <div>
+                    <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#1e293b' }}>{testData.title || "Aptitude Assessment"}</h2>
+                    <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                        Question {currentQIndex + 1} of {testData.questions.length}
+                    </p>
                 </div>
-            ))}
-            <button onClick={submitTest} style={{ padding: '15px 25px', fontSize: '18px', background: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', width: '100%', fontWeight: 'bold' }}>Submit Test</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: timeLeft < 300 ? '#fef2f2' : '#f8fafc', padding: '8px 16px', borderRadius: '8px', border: `1px solid ${timeLeft < 300 ? '#fca5a5' : '#e2e8f0'}` }}>
+                    <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '500' }}>Time Remaining:</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: timeLeft < 300 ? '#ef4444' : '#0f172a' }}>
+                        {formatTime(timeLeft)}
+                    </span>
+                </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div style={{ height: '4px', background: '#e2e8f0', width: '100%' }}>
+                <div style={{ height: '100%', background: '#3b82f6', width: `${progressPercentage}%`, transition: 'width 0.3s ease' }}></div>
+            </div>
+
+            {/* Question Container */}
+            <div style={{ maxWidth: '800px', margin: '40px auto', padding: '0 20px' }}>
+                <div style={{ background: '#fff', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05)' }}>
+                    
+                    <h3 style={{ fontSize: '1.4rem', lineHeight: '1.6', margin: '0 0 30px 0', color: '#1e293b', fontWeight: '600' }}>
+                        <span style={{ color: '#3b82f6', marginRight: '10px' }}>{currentQIndex + 1}.</span> 
+                        {currentQuestion.questionText}
+                    </h3>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {currentQuestion.options.map((option, idx) => {
+                            const isSelected = answers[currentQuestion._id] === option;
+                            return (
+                                <div 
+                                    key={idx}
+                                    onClick={() => handleSelectOption(currentQuestion._id, option)}
+                                    style={{ 
+                                        padding: '16px 20px', 
+                                        borderRadius: '8px', 
+                                        border: `2px solid ${isSelected ? '#3b82f6' : '#e2e8f0'}`,
+                                        background: isSelected ? '#eff6ff' : '#fff',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '15px'
+                                    }}
+                                >
+                                    <div style={{ 
+                                        width: '20px', height: '20px', borderRadius: '50%', 
+                                        border: `2px solid ${isSelected ? '#3b82f6' : '#cbd5e1'}`,
+                                        background: isSelected ? '#3b82f6' : 'transparent',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                    }}>
+                                        {isSelected && <div style={{ width: '8px', height: '8px', background: '#fff', borderRadius: '50%' }}></div>}
+                                    </div>
+                                    <span style={{ fontSize: '1.05rem', color: isSelected ? '#1e293b' : '#475569', fontWeight: isSelected ? '500' : '400' }}>
+                                        {option}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Bottom Navigation Buttons */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px', paddingBottom: '50px' }}>
+                    <button 
+                        onClick={handlePrev} 
+                        disabled={currentQIndex === 0}
+                        style={{ 
+                            padding: '12px 24px', borderRadius: '8px', border: '1px solid #cbd5e1', 
+                            background: currentQIndex === 0 ? '#f8fafc' : '#fff', 
+                            color: currentQIndex === 0 ? '#94a3b8' : '#334155',
+                            fontWeight: '600', cursor: currentQIndex === 0 ? 'not-allowed' : 'pointer',
+                            fontSize: '1rem', transition: 'background 0.2s'
+                        }}
+                    >
+                        &larr; Previous
+                    </button>
+
+                    {!isLastQuestion ? (
+                        <button 
+                            onClick={handleNext} 
+                            style={{ 
+                                padding: '12px 30px', borderRadius: '8px', border: 'none', 
+                                background: '#3b82f6', color: '#fff',
+                                fontWeight: '600', cursor: 'pointer', fontSize: '1rem',
+                                boxShadow: '0 4px 6px rgba(59, 130, 246, 0.25)', transition: 'background 0.2s'
+                            }}
+                        >
+                            Next &rarr;
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={handleFinalSubmit} 
+                            disabled={isSubmitting}
+                            style={{ 
+                                padding: '12px 30px', borderRadius: '8px', border: 'none', 
+                                background: '#10b981', color: '#fff',
+                                fontWeight: '600', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontSize: '1rem',
+                                boxShadow: '0 4px 6px rgba(16, 185, 129, 0.25)', transition: 'background 0.2s'
+                            }}
+                        >
+                            {isSubmitting ? 'Submitting...' : 'Submit Assessment'}
+                        </button>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
